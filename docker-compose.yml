@@ -1,0 +1,26 @@
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: spooty-redis
+    restart: unless-stopped
+
+  spooty:
+    build: .
+    image: spooty:local
+    container_name: spooty
+    restart: unless-stopped
+    depends_on:
+      - redis
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      REDIS_HOST: redis
+      REDIS_RUN: "false"
+      YT_COOKIES_FILE: /spooty/config/cookies.txt
+    volumes:
+      # Paths are relative to dist/backend at runtime (see README Docker compose)
+      - ./config:/spooty/dist/backend/config
+      - ${SPOOTY_DOWNLOADS_DIR:-./downloads}:/spooty/dist/backend/downloads
+      - ${SPOOTY_COOKIES_FILE}:/spooty/config/cookies.txt:ro

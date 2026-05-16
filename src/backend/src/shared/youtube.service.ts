@@ -47,6 +47,38 @@ export class YoutubeService {
     return {};
   }
 
+  private parseOptionalNonNegativeInt(key: EnvironmentEnum): number | undefined {
+    const raw = this.configService.get<string>(key);
+    if (raw == null || raw === '') {
+      return undefined;
+    }
+    const n = parseInt(raw, 10);
+    if (!Number.isFinite(n) || n < 0) {
+      return undefined;
+    }
+    return n;
+  }
+
+  private getYtDlpPacingOptions(): {
+    sleepInterval?: number;
+    sleepRequests?: number;
+    retries?: number;
+  } {
+    const sleepInterval =
+      this.parseOptionalNonNegativeInt(EnvironmentEnum.YT_DLP_SLEEP_INTERVAL) ??
+      5;
+    const sleepRequests = this.parseOptionalNonNegativeInt(
+      EnvironmentEnum.YT_DLP_SLEEP_REQUESTS,
+    );
+    const retries =
+      this.parseOptionalNonNegativeInt(EnvironmentEnum.YT_DLP_RETRIES) ?? 3;
+    return {
+      sleepInterval,
+      retries,
+      ...(sleepRequests !== undefined ? { sleepRequests } : {}),
+    };
+  }
+
   async downloadAndFormat(track: TrackEntity, output: string): Promise<void> {
     this.logger.debug(
       `Downloading ${track.artist} - ${track.name} (${track.youtubeUrl}) from YT`,
@@ -62,6 +94,7 @@ export class YoutubeService {
       {
         output,
         ...this.getCookiesOptions(),
+        ...this.getYtDlpPacingOptions(),
         headers: HEADERS,
         jsRuntime: 'node',
         audioQuality: this.configService.get<string>('QUALITY'),

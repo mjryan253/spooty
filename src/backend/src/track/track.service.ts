@@ -12,7 +12,8 @@ import { UtilsService } from '../shared/utils.service';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { YoutubeService } from '../shared/youtube.service';
-import * as fs from 'fs';
+import { formatYtDlpDownloadError } from '../shared/yt-dlp-download-error';
+import { trackFileExists } from './track-file-on-disk';
 
 enum WsTrackOperation {
   New = 'trackNew',
@@ -58,12 +59,22 @@ export class TrackService {
 
   async create(track: TrackEntity, playlist?: PlaylistEntity): Promise<void> {
     const savedTrack = await this.repository.save({ ...track, playlist });
-    await this.trackSearchQueue.add('', savedTrack, {
-      jobId: `id-${savedTrack.id}`,
-    });
     this.io.emit(WsTrackOperation.New, {
       track: savedTrack,
       playlistId: playlist.id,
+    });
+    if (playlist && this.isTrackFileOnDisk(savedTrack, playlist)) {
+      this.logger.debug(
+        `File already exists, skipping search: ${this.getFolderName(savedTrack, playlist)}`,
+      );
+      await this.update(savedTrack.id, {
+        ...savedTrack,
+        status: TrackStatusEnum.Completed,
+      });
+      return;
+    }
+    await this.trackSearchQueue.add('', savedTrack, {
+      jobId: `id-${savedTrack.id}`,
     });
   }
 
@@ -74,29 +85,61 @@ export class TrackService {
 
   async retry(id: number): Promise<void> {
     const track = await this.get(id);
+    if (!track) {
+      return;
+    }
+    if (track.playlist && this.isTrackFileOnDisk(track, track.playlist)) {
+      this.logger.debug(
+        `File already exists, skipping retry search: ${this.getFolderName(track, track.playlist)}`,
+      );
+      await this.update(id, {
+        ...track,
+        status: TrackStatusEnum.Completed,
+        error: undefined,
+      });
+      return;
+    }
     await this.trackSearchQueue.add('', track, { jobId: `id-${id}` });
     await this.update(id, { ...track, status: TrackStatusEnum.New });
   }
 
   async findOnYoutube(track: TrackEntity): Promise<void> {
-    if (!(await this.get(track.id))) {
+    const current = await this.get(track.id);
+    if (!current) {
+      return;
+    }
+    if (
+      current.playlist &&
+      this.isTrackFileOnDisk(current, current.playlist)
+    ) {
+      this.logger.debug(
+        `File already exists, skipping search: ${this.getFolderName(current, current.playlist)}`,
+      );
+      await this.update(current.id, {
+        ...current,
+        status: TrackStatusEnum.Completed,
+      });
       return;
     }
     await this.update(track.id, {
-      ...track,
+      ...current,
       status: TrackStatusEnum.Searching,
     });
     let updatedTrack: TrackEntity;
     try {
       const youtubeUrl = await this.youtubeService.findOnYoutubeOne(
-        track.artist,
-        track.name,
+        current.artist,
+        current.name,
       );
-      updatedTrack = { ...track, youtubeUrl, status: TrackStatusEnum.Queued };
+      updatedTrack = {
+        ...current,
+        youtubeUrl,
+        status: TrackStatusEnum.Queued,
+      };
     } catch (err) {
       this.logger.error(err);
       updatedTrack = {
-        ...track,
+        ...current,
         error: String(err),
         status: TrackStatusEnum.Error,
       };
@@ -104,7 +147,7 @@ export class TrackService {
     await this.trackDownloadQueue.add('', updatedTrack, {
       jobId: `id-${updatedTrack.id}`,
     });
-    await this.update(track.id, updatedTrack);
+    await this.update(current.id, updatedTrack);
   }
 
   /** @returns true when the output file already existed and yt-dlp was skipped */
@@ -125,33 +168,35 @@ export class TrackService {
         `No cover art available for track: ${track.artist} - ${track.name}`,
       );
     }
+    const folderName = this.getFolderName(track, track.playlist);
+    if (this.isTrackFileOnDisk(track, track.playlist)) {
+      this.logger.debug(
+        `File already exists, skipping download: ${folderName}`,
+      );
+      await this.update(track.id, {
+        ...track,
+        status: TrackStatusEnum.Completed,
+      });
+      return true;
+    }
     await this.update(track.id, {
       ...track,
       status: TrackStatusEnum.Downloading,
     });
-    let error: string;
-    let skippedExistingFile = false;
+    let error: string | undefined;
     try {
-      const folderName = this.getFolderName(track, track.playlist);
-      if (fs.existsSync(folderName)) {
-        this.logger.debug(
-          `File already exists, skipping download: ${folderName}`,
+      await this.youtubeService.downloadAndFormat(track, folderName);
+      if (coverUrl) {
+        await this.youtubeService.addImage(
+          folderName,
+          coverUrl,
+          track.name,
+          track.artist,
         );
-        skippedExistingFile = true;
-      } else {
-        await this.youtubeService.downloadAndFormat(track, folderName);
-        if (coverUrl) {
-          await this.youtubeService.addImage(
-            folderName,
-            coverUrl,
-            track.name,
-            track.artist,
-          );
-        }
       }
     } catch (err) {
       this.logger.error(err);
-      error = String(err);
+      error = formatYtDlpDownloadError(err);
     }
     const updatedTrack = {
       ...track,
@@ -159,7 +204,16 @@ export class TrackService {
       ...(error ? { error } : {}),
     };
     await this.update(track.id, updatedTrack);
-    return Boolean(skippedExistingFile && !error);
+    return false;
+  }
+
+  isTrackFileOnDisk(
+    track: TrackEntity,
+    playlist: PlaylistEntity,
+  ): boolean {
+    return trackFileExists(track, playlist, (t, p) =>
+      this.getFolderName(t, p),
+    );
   }
 
   getTrackFileName(track: TrackEntity): string {
