@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { TrackEntity, TrackStatusEnum } from './track.entity';
 import { PlaylistEntity } from '../playlist/playlist.entity';
 import { ConfigService } from '@nestjs/config';
@@ -20,6 +20,18 @@ enum WsTrackOperation {
   Update = 'trackUpdate',
   Delete = 'trackDelete',
 }
+
+const NON_TERMINAL_STATUSES: TrackStatusEnum[] = [
+  TrackStatusEnum.New,
+  TrackStatusEnum.Searching,
+  TrackStatusEnum.Queued,
+  TrackStatusEnum.Downloading,
+];
+
+const RESUME_SCAN_STATUSES: TrackStatusEnum[] = [
+  ...NON_TERMINAL_STATUSES,
+  TrackStatusEnum.Error,
+];
 
 @WebSocketGateway()
 @Injectable()
@@ -81,6 +93,47 @@ export class TrackService {
   async update(id: number, track: TrackEntity): Promise<void> {
     await this.repository.update(id, track);
     this.io.emit(WsTrackOperation.Update, track);
+  }
+
+  /** Reconcile disk vs DB and re-queue in-flight work after Redis/app restart. */
+  async resumeStuckTracks(): Promise<void> {
+    const tracks = await this.repository.find({
+      where: { status: In(RESUME_SCAN_STATUSES) },
+      relations: ['playlist'],
+    });
+    let markedCompleted = 0;
+    let requeued = 0;
+    for (const track of tracks) {
+      if (!track.id || !track.playlist) {
+        continue;
+      }
+      if (this.isTrackFileOnDisk(track, track.playlist)) {
+        await this.update(track.id, {
+          ...track,
+          status: TrackStatusEnum.Completed,
+          error: undefined,
+        });
+        markedCompleted++;
+        continue;
+      }
+      if (
+        track.status != null &&
+        NON_TERMINAL_STATUSES.includes(track.status)
+      ) {
+        await this.trackSearchQueue.add('', track, {
+          jobId: `id-${track.id}`,
+        });
+        if (track.status !== TrackStatusEnum.New) {
+          await this.update(track.id, { ...track, status: TrackStatusEnum.New });
+        }
+        requeued++;
+      }
+    }
+    if (markedCompleted > 0 || requeued > 0) {
+      this.logger.log(
+        `Resume on boot: ${markedCompleted} marked completed, ${requeued} re-queued for search`,
+      );
+    }
   }
 
   async retry(id: number): Promise<void> {

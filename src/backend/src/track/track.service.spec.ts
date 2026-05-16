@@ -28,6 +28,7 @@ describe('TrackService (skip existing file)', () => {
     save: jest.fn(),
     update: jest.fn(),
     findOne: jest.fn(),
+    find: jest.fn(),
   };
   const trackSearchQueue = { add: jest.fn() };
   const trackDownloadQueue = { add: jest.fn() };
@@ -45,6 +46,7 @@ describe('TrackService (skip existing file)', () => {
     repository.save.mockReset();
     repository.update.mockReset();
     repository.findOne.mockReset();
+    repository.find.mockReset();
     trackSearchQueue.add.mockReset();
     trackDownloadQueue.add.mockReset();
 
@@ -196,6 +198,64 @@ describe('TrackService (skip existing file)', () => {
     );
 
     expect(trackSearchQueue.add).toHaveBeenCalled();
+  });
+
+  it('resumeStuckTracks marks completed when output file exists', async () => {
+    mockNonEmptyOutputFile(existsSyncSpy, statSyncSpy);
+    const track = {
+      id: 7,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Searching,
+    } as TrackEntity;
+    repository.find.mockResolvedValue([track]);
+
+    await service.resumeStuckTracks();
+
+    expect(trackSearchQueue.add).not.toHaveBeenCalled();
+    expect(repository.update).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({ status: TrackStatusEnum.Completed }),
+    );
+  });
+
+  it('resumeStuckTracks re-queues non-terminal tracks without file on disk', async () => {
+    const track = {
+      id: 8,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Queued,
+    } as TrackEntity;
+    repository.find.mockResolvedValue([track]);
+
+    await service.resumeStuckTracks();
+
+    expect(trackSearchQueue.add).toHaveBeenCalledWith('', track, {
+      jobId: 'id-8',
+    });
+    expect(repository.update).toHaveBeenCalledWith(
+      8,
+      expect.objectContaining({ status: TrackStatusEnum.New }),
+    );
+  });
+
+  it('resumeStuckTracks does not re-queue Error tracks without file on disk', async () => {
+    const track = {
+      id: 9,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Error,
+      error: 'failed',
+    } as TrackEntity;
+    repository.find.mockResolvedValue([track]);
+
+    await service.resumeStuckTracks();
+
+    expect(trackSearchQueue.add).not.toHaveBeenCalled();
+    expect(repository.update).not.toHaveBeenCalled();
   });
 
   it('downloadFromYoutube skips yt-dlp and avoids Downloading status when file exists', async () => {

@@ -50,12 +50,12 @@ Just run docker command or use docker compose configuration.
 For detailed configuration, see available [environment variables](#environment-variables).
 
 #### Docker command
-The app resolves `DB_PATH` and `DOWNLOADS_PATH` under `/spooty/dist/backend` in the image.
+The image copies the build to `/spooty`; the app resolves `DB_PATH` and `DOWNLOADS_PATH` under `/spooty/backend` at runtime.
 
 ```shell
 docker run -d -p 3000:3000 \
-  -v /path/to/config:/spooty/dist/backend/config \
-  -v /path/to/downloads:/spooty/dist/backend/downloads \
+  -v /path/to/config:/spooty/backend/config \
+  -v /path/to/downloads:/spooty/backend/downloads \
   -v /path/to/cookies.txt:/spooty/config/cookies.txt:ro \
   -e SPOTIFY_CLIENT_ID=your_client_id \
   -e SPOTIFY_CLIENT_SECRET=your_client_secret \
@@ -76,8 +76,8 @@ The included [`docker-compose.yml`](docker-compose.yml) builds `spooty:local`, r
 
 | Host | Container | Purpose |
 |------|-----------|---------|
-| `./config` | `/spooty/dist/backend/config` | SQLite (`DB_PATH=./config/db.sqlite`) |
-| `SPOOTY_DOWNLOADS_DIR` (default `./downloads`) | `/spooty/dist/backend/downloads` | Audio files (`DOWNLOADS_PATH=./downloads`) |
+| `./config` | `/spooty/backend/config` | SQLite (`DB_PATH=./config/db.sqlite`) |
+| `SPOOTY_DOWNLOADS_DIR` (default `./downloads`) | `/spooty/backend/downloads` | Audio files (`DOWNLOADS_PATH=./downloads`) |
 | `SPOOTY_COOKIES_FILE` | `/spooty/config/cookies.txt` | YouTube cookies (read-only) |
 
 Open **http://127.0.0.1:3000** after the stack is up. Rebuild after backend changes: `docker compose up -d --build`.
@@ -93,8 +93,8 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      - /path/to/config:/spooty/dist/backend/config
-      - /path/to/downloads:/spooty/dist/backend/downloads
+      - /path/to/config:/spooty/backend/config
+      - /path/to/downloads:/spooty/backend/downloads
       - /path/to/cookies.txt:/spooty/config/cookies.txt:ro
     environment:
       - SPOTIFY_CLIENT_ID=your_client_id

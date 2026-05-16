@@ -20,7 +20,7 @@ services:
       REDIS_RUN: "false"
       YT_COOKIES_FILE: /spooty/config/cookies.txt
     volumes:
-      # Paths are relative to dist/backend at runtime (see README Docker compose)
-      - ./config:/spooty/dist/backend/config
-      - ${SPOOTY_DOWNLOADS_DIR:-./downloads}:/spooty/dist/backend/downloads
+      # Dockerfile copies dist/ to /spooty; app __dirname is /spooty/backend (see README)
+      - ./config:/spooty/backend/config
+      - ${SPOOTY_DOWNLOADS_DIR:-./downloads}:/spooty/backend/downloads
       - ${SPOOTY_COOKIES_FILE}:/spooty/config/cookies.txt:ro
