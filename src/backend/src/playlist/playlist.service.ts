@@ -45,15 +45,23 @@ export class PlaylistService {
     return this.repository.findOneBy({ id });
   }
 
+  findBySpotifyUrl(spotifyUrl: string): Promise<PlaylistEntity | null> {
+    return this.repository.findOneBy({ spotifyUrl });
+  }
+
   async remove(id: number): Promise<void> {
     await this.repository.delete(id);
     this.io.emit(WsPlaylistOperation.Delete, { id });
   }
 
   async create(playlist: PlaylistEntity): Promise<void> {
-    // Detect if URL is for a single track or a playlist and route accordingly
-    const isTrack = this.spotifyService.isTrackUrl(playlist.spotifyUrl);
+    const existing = await this.findBySpotifyUrl(playlist.spotifyUrl);
+    if (existing) {
+      await this.reimportExisting(existing);
+      return;
+    }
 
+    const isTrack = this.spotifyService.isTrackUrl(playlist.spotifyUrl);
     if (isTrack) {
       await this.createSingleTrack(playlist);
     } else {
@@ -61,7 +69,25 @@ export class PlaylistService {
     }
   }
 
-  private async createSingleTrack(playlist: PlaylistEntity): Promise<void> {
+  private async reimportExisting(existing: PlaylistEntity): Promise<void> {
+    await this.update(existing.id, { error: null });
+    const tracks = await this.trackService.getAllByPlaylist(existing.id);
+    if (tracks.length === 0) {
+      const stub = { spotifyUrl: existing.spotifyUrl } as PlaylistEntity;
+      if (existing.isTrack) {
+        await this.createSingleTrack(stub, existing.id);
+      } else {
+        await this.createPlaylist(stub, existing.id);
+      }
+    } else {
+      await this.retryFailedOfPlaylist(existing.id);
+    }
+  }
+
+  private async createSingleTrack(
+    playlist: PlaylistEntity,
+    existingId?: number,
+  ): Promise<void> {
     let trackDetail: { name: string; artist: string; image: string };
     let playlist2Save: PlaylistEntity;
     try {
@@ -82,7 +108,7 @@ export class PlaylistService {
       this.logger.error(`Error getting track details: ${err}`);
       playlist2Save = { ...playlist, error: String(err), isTrack: true };
     }
-    const savedPlaylist = await this.save(playlist2Save);
+    const savedPlaylist = await this.persistPlaylist(playlist2Save, existingId);
 
     if (trackDetail) {
       try {
@@ -103,7 +129,10 @@ export class PlaylistService {
     }
   }
 
-  private async createPlaylist(playlist: PlaylistEntity): Promise<void> {
+  private async createPlaylist(
+    playlist: PlaylistEntity,
+    existingId?: number,
+  ): Promise<void> {
     let detail: { tracks: any; name: any; image: any };
     let playlist2Save: PlaylistEntity;
     try {
@@ -122,7 +151,7 @@ export class PlaylistService {
       this.logger.error(`Error getting playlist details: ${err}`);
       playlist2Save = { ...playlist, error: String(err) };
     }
-    const savedPlaylist = await this.save(playlist2Save);
+    const savedPlaylist = await this.persistPlaylist(playlist2Save, existingId);
 
     if (detail?.tracks && detail.tracks.length > 0) {
       this.logger.debug(
@@ -190,6 +219,21 @@ export class PlaylistService {
   async save(playlist: PlaylistEntity): Promise<PlaylistEntity> {
     const savedPlaylist = await this.repository.save(playlist);
     this.io.emit(WsPlaylistOperation.New, savedPlaylist);
+    return savedPlaylist;
+  }
+
+  private async persistPlaylist(
+    playlist: PlaylistEntity,
+    existingId?: number,
+  ): Promise<PlaylistEntity> {
+    if (existingId == null) {
+      return this.save(playlist);
+    }
+    const savedPlaylist = await this.repository.save({
+      ...playlist,
+      id: existingId,
+    });
+    this.io.emit(WsPlaylistOperation.Update, savedPlaylist);
     return savedPlaylist;
   }
 

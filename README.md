@@ -50,16 +50,40 @@ Just run docker command or use docker compose configuration.
 For detailed configuration, see available [environment variables](#environment-variables).
 
 #### Docker command
+The image copies the build to `/spooty`; the app resolves `DB_PATH` and `DOWNLOADS_PATH` under `/spooty/backend` at runtime.
+
 ```shell
 docker run -d -p 3000:3000 \
+  -v /path/to/config:/spooty/backend/config \
   -v /path/to/downloads:/spooty/backend/downloads \
-  -v /path/to/cookies.txt:/spooty/config/cookies.txt \
+  -v /path/to/cookies.txt:/spooty/config/cookies.txt:ro \
   -e SPOTIFY_CLIENT_ID=your_client_id \
   -e SPOTIFY_CLIENT_SECRET=your_client_secret \
+  -e YT_COOKIES_FILE=/spooty/config/cookies.txt \
+  -e REDIS_HOST=host.docker.internal \
   raiper34/spooty:latest
 ```
 
 #### Docker compose
+
+From the repo root, copy `.env.example` to `.env`, set Spotify credentials and volume paths, then:
+
+```shell
+docker compose up -d --build
+```
+
+The included [`docker-compose.yml`](docker-compose.yml) builds `spooty:local`, runs Redis, and mounts:
+
+| Host | Container | Purpose |
+|------|-----------|---------|
+| `./config` | `/spooty/backend/config` | SQLite (`DB_PATH=./config/db.sqlite`) |
+| `SPOOTY_DOWNLOADS_DIR` (default `./downloads`) | `/spooty/backend/downloads` | Audio files (`DOWNLOADS_PATH=./downloads`) |
+| `SPOOTY_COOKIES_FILE` | `/spooty/config/cookies.txt` | YouTube cookies (read-only) |
+
+Open **http://127.0.0.1:3000** after the stack is up. Rebuild after backend changes: `docker compose up -d --build`.
+
+Published image example:
+
 ```yaml
 services:
   spooty:
@@ -69,12 +93,13 @@ services:
     ports:
       - "3000:3000"
     volumes:
+      - /path/to/config:/spooty/backend/config
       - /path/to/downloads:/spooty/backend/downloads
-      - /path/to/cookies.txt:/spooty/config/cookies.txt
+      - /path/to/cookies.txt:/spooty/config/cookies.txt:ro
     environment:
       - SPOTIFY_CLIENT_ID=your_client_id
       - SPOTIFY_CLIENT_SECRET=your_client_secret
-      # Configure other environment variables if needed
+      - YT_COOKIES_FILE=/spooty/config/cookies.txt
 ```
 
 ### Build from source
@@ -119,7 +144,10 @@ Some behaviour and settings of Spooty can be configured using environment variab
  SPOTIFY_CLIENT_SECRET   | your_client_secret                          | Client Secret of your Spotify application (required)                                                                                                                      |
  SPOTIFY_REDIRECT_URI    |                                             | Exact OAuth redirect URL (e.g. `http://127.0.0.1:3000/api/auth/spotify/callback`). Must match Spotify app settings. Enables user login for full playlist Web API access. |
  SPOTIFY_AUTH_SCOPES     | playlist-read-private playlist-read-collaborative | Space-separated OAuth scopes (optional).                                                                                                                          |
- YT_DOWNLOADS_PER_MINUTE | 3                                           | Set the maximum number of YouTube downloads started per minute                                                                                                            |
+ YT_DOWNLOADS_PER_MINUTE | 3                                           | Max YouTube download **and search** jobs started per minute (queue spacing)                                                                                               |
+ YT_DLP_SLEEP_INTERVAL   | 5                                           | Seconds yt-dlp waits between downloads (`--sleep-interval`)                                                                                                               |
+ YT_DLP_SLEEP_REQUESTS   | unset                                       | Optional seconds yt-dlp waits between requests during extraction (`--sleep-requests`)                                                                                    |
+ YT_DLP_RETRIES          | 3                                           | yt-dlp retry count for failed fragments/requests                                                                                                                          |
  YT_SKIP_BURST_LIMIT     | 5                                           | After this many consecutive skips (output file already on disk), pause before the next download job (see `YT_SKIP_BURST_COOLDOWN_MS`)                                     |
  YT_SKIP_BURST_COOLDOWN_MS | 60000                                     | Extra milliseconds to wait when the skip burst limit is reached                                                                                                         |
  YT_COOKIES              |                                             | Browser name to automatically extract YouTube cookies from (e.g. `chrome`, `firefox`). Only works when running Spooty natively (not in Docker). See [below](#yt_cookies---browser-based-cookies-non-docker). |
@@ -147,16 +175,20 @@ YT_COOKIES=chrome
 
 #### `YT_COOKIES_FILE` — cookies file (recommended for Docker)
 
-Export your YouTube cookies as a Netscape `cookies.txt` file and provide its path. This is the recommended approach for Docker deployments.
+Set `YT_COOKIES_FILE` to the in-container path (e.g. `/spooty/config/cookies.txt`). Bind-mount a Netscape `cookies.txt` from the host; a symlink is fine (overwrite the target file). Spooty reads it on each download — no container restart needed after you replace the file.
 
-**How to get your `cookies.txt` file:**
-1. Install a browser extension that exports cookies in Netscape format, e.g. [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) for Chrome or [cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/) for Firefox.
-2. Go to https://www.youtube.com and log in.
-3. Use the extension to export cookies for `youtube.com` and save the file as `cookies.txt`.
+**How to get your `cookies.txt` file** ([yt-dlp wiki](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies)):
 
-**Docker usage:**
+1. New **private/incognito** window; log into YouTube (throwaway account recommended).
+2. Same tab only: open `https://www.youtube.com/robots.txt`.
+3. Export `youtube.com` cookies with [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc) or [cookies.txt for Firefox](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/).
+4. Close incognito; do not use that account in a normal browser while Spooty runs.
 
-Bind mount the `cookies.txt` file into the container and set `YT_COOKIES_FILE` to its path inside the container. See the [Environment variables](#environment-variables) section for details.
+Do **not** use `yt-dlp --cookies-from-browser … --cookies file` for the incognito session — that exports your regular browser cookies.
+
+**Long playlists:** Prefer `YT_DOWNLOADS_PER_MINUTE=3`, defaults for `YT_DLP_SLEEP_INTERVAL` / `YT_DLP_RETRIES`, and re-export cookies if you see HTTP 302 or sign-in errors. Use **retry failed** in the UI. If a non-empty output file is already on disk (same playlist folder and filename), Spooty marks the track **Completed** without YouTube search or download. Zero-byte files are treated as missing and will be downloaded again.
+
+Verify (optional): `docker exec spooty /spooty/node_modules/ytdlp-nodejs/bin/yt-dlp --cookies /spooty/config/cookies.txt --simulate -f ba "https://www.youtube.com/watch?v=dQw4w9WgXcQ"`
 
 > [!NOTE]
 > `YT_COOKIES` takes priority over `YT_COOKIES_FILE` if both are set.

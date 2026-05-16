@@ -9,6 +9,7 @@ import { BullModule } from '@nestjs/bullmq';
 import { TrackDownloadProcessor } from './track-download.processor';
 import { TrackSearchProcessor } from './track-search.processor';
 import { SkipDownloadBurstService } from './skip-download-burst.service';
+import { TrackResumeBootstrapService } from './track-resume-bootstrap.service';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { SkipDownloadBurstService } from './skip-download-burst.service';
     TrackDownloadProcessor,
     TrackSearchProcessor,
     SkipDownloadBurstService,
+    TrackResumeBootstrapService,
   ],
   controllers: [TrackController],
   exports: [TrackService],

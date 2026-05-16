@@ -1,5 +1,6 @@
 /node_modules
 /dist
+/local-docs
 /.idea
 **/*.sqlite
 # Local Netlify folder
