@@ -6,6 +6,7 @@ import { ConfigService } from '@nestjs/config';
 import { YtDlp } from 'ytdlp-nodejs';
 import * as yts from 'yt-search';
 import * as fs from 'fs';
+import { removeOrphanIntermediateFiles } from './yt-dlp-intermediate-cleanup';
 const NodeID3 = require('node-id3');
 
 const HEADERS = {
@@ -59,6 +60,16 @@ export class YoutubeService {
     return n;
   }
 
+  private getYtDlpCleanupOptions(): {
+    noKeepVideo: boolean;
+    noKeepFragments: boolean;
+  } {
+    return {
+      noKeepVideo: true,
+      noKeepFragments: true,
+    };
+  }
+
   private getYtDlpPacingOptions(): {
     sleepInterval?: number;
     sleepRequests?: number;
@@ -95,11 +106,13 @@ export class YoutubeService {
         output,
         ...this.getCookiesOptions(),
         ...this.getYtDlpPacingOptions(),
+        ...this.getYtDlpCleanupOptions(),
         headers: HEADERS,
         jsRuntime: 'node',
         audioQuality: this.configService.get<string>('QUALITY'),
       },
     );
+    removeOrphanIntermediateFiles(output);
     this.logger.debug(
       `Downloaded ${track.artist} - ${track.name} to ${output}`,
     );

@@ -13,6 +13,7 @@ import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { YoutubeService } from '../shared/youtube.service';
 import { formatYtDlpDownloadError } from '../shared/yt-dlp-download-error';
+import { removeOrphanIntermediateFiles } from '../shared/yt-dlp-intermediate-cleanup';
 import { trackFileExists } from './track-file-on-disk';
 
 enum WsTrackOperation {
@@ -76,9 +77,9 @@ export class TrackService {
       playlistId: playlist.id,
     });
     if (playlist && this.isTrackFileOnDisk(savedTrack, playlist)) {
-      this.logger.debug(
-        `File already exists, skipping search: ${this.getFolderName(savedTrack, playlist)}`,
-      );
+      const outputPath = this.getFolderName(savedTrack, playlist);
+      removeOrphanIntermediateFiles(outputPath);
+      this.logger.debug(`File already exists, skipping search: ${outputPath}`);
       await this.update(savedTrack.id, {
         ...savedTrack,
         status: TrackStatusEnum.Completed,
@@ -108,6 +109,9 @@ export class TrackService {
         continue;
       }
       if (this.isTrackFileOnDisk(track, track.playlist)) {
+        removeOrphanIntermediateFiles(
+          this.getFolderName(track, track.playlist),
+        );
         await this.update(track.id, {
           ...track,
           status: TrackStatusEnum.Completed,
@@ -142,9 +146,9 @@ export class TrackService {
       return;
     }
     if (track.playlist && this.isTrackFileOnDisk(track, track.playlist)) {
-      this.logger.debug(
-        `File already exists, skipping retry search: ${this.getFolderName(track, track.playlist)}`,
-      );
+      const outputPath = this.getFolderName(track, track.playlist);
+      removeOrphanIntermediateFiles(outputPath);
+      this.logger.debug(`File already exists, skipping retry search: ${outputPath}`);
       await this.update(id, {
         ...track,
         status: TrackStatusEnum.Completed,
@@ -165,9 +169,9 @@ export class TrackService {
       current.playlist &&
       this.isTrackFileOnDisk(current, current.playlist)
     ) {
-      this.logger.debug(
-        `File already exists, skipping search: ${this.getFolderName(current, current.playlist)}`,
-      );
+      const outputPath = this.getFolderName(current, current.playlist);
+      removeOrphanIntermediateFiles(outputPath);
+      this.logger.debug(`File already exists, skipping search: ${outputPath}`);
       await this.update(current.id, {
         ...current,
         status: TrackStatusEnum.Completed,
@@ -223,9 +227,8 @@ export class TrackService {
     }
     const folderName = this.getFolderName(track, track.playlist);
     if (this.isTrackFileOnDisk(track, track.playlist)) {
-      this.logger.debug(
-        `File already exists, skipping download: ${folderName}`,
-      );
+      removeOrphanIntermediateFiles(folderName);
+      this.logger.debug(`File already exists, skipping download: ${folderName}`);
       await this.update(track.id, {
         ...track,
         status: TrackStatusEnum.Completed,
