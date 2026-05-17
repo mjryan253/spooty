@@ -252,6 +252,20 @@ export class PlaylistService {
     }
   }
 
+  async rescanPlaylist(id: number): Promise<void> {
+    const tracks = await this.trackService.getAllByPlaylist(id);
+    for (const track of tracks) {
+      await this.trackService.rescanFromDisk(track.id);
+    }
+  }
+
+  async requeueMissingTracks(id: number): Promise<void> {
+    const tracks = await this.trackService.getAllByPlaylist(id);
+    for (const track of tracks) {
+      await this.trackService.retry(track.id);
+    }
+  }
+
   private createPlaylistFolderStructure(playlistName: string): void {
     const playlistPath = this.utilsService.getPlaylistFolderPath(playlistName);
     if (!fs.existsSync(playlistPath)) {

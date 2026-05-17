@@ -141,6 +141,14 @@ export class PlaylistService {
     this.http.get<void>(`${ENDPOINT}/retry/${id}`).subscribe();
   }
 
+  rescan(id: number): void {
+    this.http.get<void>(`${ENDPOINT}/rescan/${id}`).subscribe();
+  }
+
+  requeueMissing(id: number): void {
+    this.http.get<void>(`${ENDPOINT}/requeue-missing/${id}`).subscribe();
+  }
+
   setActive(id: number, active: boolean): void {
     this.http.put<void>(`${ENDPOINT}/${id}`, {active}).subscribe();
   }

@@ -355,4 +355,64 @@ describe('TrackService (skip existing file)', () => {
       expect.objectContaining({ status: TrackStatusEnum.Downloading }),
     );
   });
+
+  it('rescanFromDisk marks completed when file exists and track was in error', async () => {
+    mockNonEmptyOutputFile(existsSyncSpy, statSyncSpy);
+    const track = {
+      id: 12,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Error,
+      error: 'failed',
+    } as TrackEntity;
+    repository.findOne.mockResolvedValue(track);
+
+    await service.rescanFromDisk(12);
+
+    expect(repository.update).toHaveBeenCalledWith(
+      12,
+      expect.objectContaining({ status: TrackStatusEnum.Completed }),
+    );
+    expect(trackSearchQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('rescanFromDisk does not update when file exists and track is already completed', async () => {
+    mockNonEmptyOutputFile(existsSyncSpy, statSyncSpy);
+    const track = {
+      id: 13,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Completed,
+    } as TrackEntity;
+    repository.findOne.mockResolvedValue(track);
+
+    await service.rescanFromDisk(13);
+
+    expect(repository.update).not.toHaveBeenCalled();
+    expect(trackSearchQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('rescanFromDisk marks error when file missing and track was completed', async () => {
+    const track = {
+      id: 14,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Completed,
+    } as TrackEntity;
+    repository.findOne.mockResolvedValue(track);
+
+    await service.rescanFromDisk(14);
+
+    expect(repository.update).toHaveBeenCalledWith(
+      14,
+      expect.objectContaining({
+        status: TrackStatusEnum.Error,
+        error: 'Output file missing on disk',
+      }),
+    );
+    expect(trackSearchQueue.add).not.toHaveBeenCalled();
+  });
 });

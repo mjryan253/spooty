@@ -164,6 +164,33 @@ export class TrackService {
     await this.update(id, { ...track, status: TrackStatusEnum.New });
   }
 
+  /** Two-way reconcile one track with disk. No queueing. */
+  async rescanFromDisk(id: number): Promise<void> {
+    const track = await this.get(id);
+    if (!track || !track.playlist) {
+      return;
+    }
+    const onDisk = this.isTrackFileOnDisk(track, track.playlist);
+    if (onDisk) {
+      removeOrphanIntermediateFiles(this.getFolderName(track, track.playlist));
+      if (track.status !== TrackStatusEnum.Completed || track.error) {
+        await this.update(id, {
+          ...track,
+          status: TrackStatusEnum.Completed,
+          error: undefined,
+        });
+      }
+      return;
+    }
+    if (track.status === TrackStatusEnum.Completed) {
+      await this.update(id, {
+        ...track,
+        status: TrackStatusEnum.Error,
+        error: 'Output file missing on disk',
+      });
+    }
+  }
+
   async findOnYoutube(track: TrackEntity): Promise<void> {
     const current = await this.get(track.id);
     if (!current) {

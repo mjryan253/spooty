@@ -41,4 +41,14 @@ export class PlaylistController {
   retryFailedOfPlaylist(@Param('id') id: number): Promise<void> {
     return this.service.retryFailedOfPlaylist(id);
   }
+
+  @Get('rescan/:id')
+  rescan(@Param('id') id: number): Promise<void> {
+    return this.service.rescanPlaylist(id);
+  }
+
+  @Get('requeue-missing/:id')
+  requeueMissing(@Param('id') id: number): Promise<void> {
+    return this.service.requeueMissingTracks(id);
+  }
 }
