@@ -1,5 +1,4 @@
 import { TestBed } from '@angular/core/testing';
-
 import { VersionService } from './version.service';
 
 describe('VersionService', () => {
@@ -12,5 +11,9 @@ describe('VersionService', () => {
 
   it('should be created', () => {
     expect(service).toBeTruthy();
+  });
+
+  it('should return package version', () => {
+    expect(service.getVersion()).toMatch(/^\d+\.\d+\.\d+/);
   });
 });

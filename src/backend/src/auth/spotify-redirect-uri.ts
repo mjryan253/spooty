@@ -47,12 +47,16 @@ export function normalizeSpotifyRedirectUri(uri: string): string {
 
 export function redirectUriFromRequest(req: Request): string {
   const rawHost =
-    (req.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim() ||
+    (req.headers['x-forwarded-host'] as string | undefined)
+      ?.split(',')[0]
+      ?.trim() ||
     req.get('host') ||
     '127.0.0.1:3000';
   const host = normalizeLoopbackHost(rawHost);
   const proto =
-    (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() ||
+    (req.headers['x-forwarded-proto'] as string | undefined)
+      ?.split(',')[0]
+      ?.trim() ||
     req.protocol ||
     'http';
   return normalizeSpotifyRedirectUri(

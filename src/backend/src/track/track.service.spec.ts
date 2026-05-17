@@ -48,7 +48,9 @@ describe('TrackService (skip existing file)', () => {
     existsSyncSpy = jest.spyOn(fs, 'existsSync').mockReturnValue(false);
     statSyncSpy = jest
       .spyOn(fs, 'statSync')
-      .mockImplementation(() => ({ isFile: () => true, size: 1024 }) as fs.Stats);
+      .mockImplementation(
+        () => ({ isFile: () => true, size: 1024 }) as fs.Stats,
+      );
     repository.save.mockReset();
     repository.update.mockReset();
     repository.findOne.mockReset();
@@ -80,8 +82,7 @@ describe('TrackService (skip existing file)', () => {
           useValue: {
             stripFileIllegalChars: (s: string) => s,
             getRootDownloadsPath: () => '/downloads',
-            getPlaylistFolderPath: (name: string) =>
-              `/downloads/${name}`,
+            getPlaylistFolderPath: (name: string) => `/downloads/${name}`,
           },
         },
         {
@@ -119,10 +120,7 @@ describe('TrackService (skip existing file)', () => {
     } as TrackEntity;
     repository.save.mockResolvedValue(saved);
 
-    await service.create(
-      { artist: 'A', name: 'B' } as TrackEntity,
-      playlist,
-    );
+    await service.create({ artist: 'A', name: 'B' } as TrackEntity, playlist);
 
     expect(trackSearchQueue.add).not.toHaveBeenCalled();
     expect(repository.update).toHaveBeenCalledWith(
@@ -140,10 +138,7 @@ describe('TrackService (skip existing file)', () => {
     } as TrackEntity;
     repository.save.mockResolvedValue(saved);
 
-    await service.create(
-      { artist: 'A', name: 'B' } as TrackEntity,
-      playlist,
-    );
+    await service.create({ artist: 'A', name: 'B' } as TrackEntity, playlist);
 
     expect(trackSearchQueue.add).toHaveBeenCalled();
   });
@@ -203,10 +198,7 @@ describe('TrackService (skip existing file)', () => {
     } as TrackEntity;
     repository.save.mockResolvedValue(saved);
 
-    await service.create(
-      { artist: 'A', name: 'B' } as TrackEntity,
-      playlist,
-    );
+    await service.create({ artist: 'A', name: 'B' } as TrackEntity, playlist);
 
     expect(trackSearchQueue.add).toHaveBeenCalled();
   });
@@ -285,9 +277,12 @@ describe('TrackService (skip existing file)', () => {
     } as TrackEntity;
     repository.findOne.mockResolvedValue(track);
     youtubeService.downloadAndFormat.mockRejectedValue(
-      new YtDlpDownloadError('yt-dlp exited with code 1: Unknown yt-dlp error', {
-        stderr: 'http status: 302',
-      }),
+      new YtDlpDownloadError(
+        'yt-dlp exited with code 1: Unknown yt-dlp error',
+        {
+          stderr: 'http status: 302',
+        },
+      ),
     );
 
     await service.downloadFromYoutube(track);
@@ -319,9 +314,12 @@ describe('TrackService (skip existing file)', () => {
     } as TrackEntity;
     repository.findOne.mockResolvedValue(track);
     youtubeService.downloadAndFormat.mockRejectedValue(
-      new YtDlpDownloadError('yt-dlp exited with code 1: Unknown yt-dlp error', {
-        stderr: 'http status: 302',
-      }),
+      new YtDlpDownloadError(
+        'yt-dlp exited with code 1: Unknown yt-dlp error',
+        {
+          stderr: 'http status: 302',
+        },
+      ),
     );
 
     await service.downloadFromYoutube(track);

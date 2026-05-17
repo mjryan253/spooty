@@ -49,7 +49,9 @@ export class YoutubeService {
     return {};
   }
 
-  private parseOptionalNonNegativeInt(key: EnvironmentEnum): number | undefined {
+  private parseOptionalNonNegativeInt(
+    key: EnvironmentEnum,
+  ): number | undefined {
     const raw = this.configService.get<string>(key);
     if (raw == null || raw === '') {
       return undefined;

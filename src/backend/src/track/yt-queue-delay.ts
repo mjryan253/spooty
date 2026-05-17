@@ -5,8 +5,7 @@ export function getYoutubeQueueDelayMs(configService: ConfigService): number {
   const maxPerMinute = Math.max(
     1,
     parseInt(
-      configService.get<string>(EnvironmentEnum.YT_DOWNLOADS_PER_MINUTE) ??
-        '3',
+      configService.get<string>(EnvironmentEnum.YT_DOWNLOADS_PER_MINUTE) ?? '3',
       10,
     ) || 3,
   );
