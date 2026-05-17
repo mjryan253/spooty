@@ -1,24 +1,11 @@
-import { Injectable } from '@angular/core';
-import {createStore} from "@ngneat/elf";
-import {HttpClient} from "@angular/common/http";
-import {
-  deleteEntities,
-  selectAllEntities, selectEntities, selectEntity,
-  setEntities,
-  UIEntitiesRef,
-  unionEntities, updateEntities, upsertEntities,
-  withEntities,
-  withUIEntities
-} from "@ngneat/elf-entities";
-import {joinRequestResult, trackRequestResult} from "@ngneat/elf-requests";
-import {combineLatest, filter, first, map, Observable, of, switchMap, tap} from "rxjs";
-import {TrackService} from "./track.service";
-import {Socket} from "ngx-socket-io";
-import {Playlist} from "../models/playlist";
+import { computed, Injectable, Signal, signal } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
+import { firstValueFrom } from 'rxjs';
+import { TrackService } from './track.service';
+import { Socket } from 'ngx-socket-io';
+import { Playlist } from '../models/playlist';
 
-const STORE_NAME = 'playlist';
 const ENDPOINT = '/api/playlist';
-const CREATE_LOADING = 'CREATE_LOADING';
 enum WsPlaylistOperation {
   New = 'playlistNew',
   Update = 'playlistUpdate',
@@ -26,9 +13,11 @@ enum WsPlaylistOperation {
 }
 
 export interface PlaylistUi {
-  id: number,
+  id: number;
   collapsed: boolean;
 }
+
+export type PlaylistWithUi = Playlist & PlaylistUi;
 
 export enum PlaylistStatusEnum {
   InProgress,
@@ -39,136 +28,187 @@ export enum PlaylistStatusEnum {
 }
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class PlaylistService {
+  private readonly playlists = signal(new Map<number, Playlist>());
+  private readonly ui = signal(new Map<number, PlaylistUi>());
 
-  private store = createStore(
-    { name: STORE_NAME },
-    withEntities<Playlist>(),
-    withUIEntities<PlaylistUi>()
+  readonly createLoading = signal(false);
+
+  readonly all = computed(() =>
+    [...this.playlists().values()]
+      .map((p) => ({
+        ...p,
+        ...(this.ui().get(p.id) ?? { id: p.id, collapsed: false }),
+      }))
+      .sort((a, b) => this.groupActiveAndSortByCreation(a, b)),
   );
 
-  all$ = this.store.combine({
-    entities: this.store.pipe(selectAllEntities()),
-    UIEntities: this.store.pipe(selectEntities({ ref: UIEntitiesRef })),
-  }).pipe(unionEntities(), map(data => data.sort((a, b) => this.groupActiveAndSortByCreation(a, b))));
-  createLoading$ = this.store.pipe(joinRequestResult([CREATE_LOADING], { initialStatus: 'idle' }));
-
-  constructor(private readonly http: HttpClient,
-              private readonly socket: Socket,
-              private readonly trackService: TrackService,
+  constructor(
+    private readonly http: HttpClient,
+    private readonly socket: Socket,
+    private readonly trackService: TrackService,
   ) {
     this.initWsConnection();
   }
 
-  getById(id: number): Observable<Playlist | undefined> {
-    return this.store.pipe(selectEntity(id));
+  getById(id: number): Signal<Playlist | undefined> {
+    return computed(() => this.playlists().get(id));
   }
 
-  getTrackCount(id: number): Observable<number> {
-    return this.trackService.getAllByPlaylist(id).pipe(map(data => data.length));
+  getTrackCount(id: number): Signal<number> {
+    return computed(() => this.trackService.getAllByPlaylist(id)().length);
   }
 
-  getCompletedTrackCount(id: number): Observable<number> {
-    return this.trackService.getCompletedByPlaylist(id).pipe(map(data => data.length));
+  getCompletedTrackCount(id: number): Signal<number> {
+    return computed(
+      () => this.trackService.getCompletedByPlaylist(id)().length,
+    );
   }
 
-  getErrorTrackCount(id: number): Observable<number> {
-    return this.trackService.getErrorByPlaylist(id).pipe(map(data => data.length));
+  getErrorTrackCount(id: number): Signal<number> {
+    return computed(() => this.trackService.getErrorByPlaylist(id)().length);
   }
 
-  getStatus$(id: number): Observable<PlaylistStatusEnum> {
-    return combineLatest([
-      this.getById(id),
-      this.getTrackCount(id),
-      this.getCompletedTrackCount(id),
-      this.getErrorTrackCount(id),
-    ]).pipe(map(([playlist, trackCount, completedCount, errorCount]) => {
+  /** Returns a computed status for this playlist id; store once per component instance. */
+  getStatus(id: number): Signal<PlaylistStatusEnum> {
+    return computed(() => {
+      const playlist = this.playlists().get(id);
+      const trackCount = this.getTrackCount(id)();
+      const completedCount = this.getCompletedTrackCount(id)();
+      const errorCount = this.getErrorTrackCount(id)();
+
       if (playlist?.error || errorCount === trackCount) {
         return PlaylistStatusEnum.Error;
-      } else if (trackCount === completedCount) {
-        return playlist?.active ? PlaylistStatusEnum.Subscribed : PlaylistStatusEnum.Completed;
-      } else if (errorCount > 1) {
+      }
+      if (trackCount === completedCount) {
+        return playlist?.active
+          ? PlaylistStatusEnum.Subscribed
+          : PlaylistStatusEnum.Completed;
+      }
+      if (errorCount > 1) {
         return PlaylistStatusEnum.Warning;
       }
       return PlaylistStatusEnum.InProgress;
-    }));
+    });
   }
 
   deleteAllByStatus(status: PlaylistStatusEnum): void {
-    this.all$.pipe(
-      first(),
-      switchMap(playlists =>
-        combineLatest(playlists.map(item => this.deleteIfStatusEquals$(item.id, status)))
-      )
-    ).subscribe();
+    for (const item of this.all()) {
+      if (this.getStatus(item.id)() === status) {
+        void this.deleteAsync(item.id);
+      }
+    }
   }
 
-  private deleteIfStatusEquals$(id: number, status2Filter: PlaylistStatusEnum): Observable<void> {
-    return combineLatest([of(id), this.getStatus$(id)]).pipe(
-      first(),
-      filter(([_, status]) => status === status2Filter),
-      switchMap(([id]) => this.delete$(id)),
-    );
-  }
-
-  fetch(): void {
-    this.http.get<Playlist[]>(ENDPOINT).pipe(
-      tap((data: Playlist[]) => this.store.update(
-        setEntities(data),
-        setEntities(data.map(item => ({id: item.id, collapsed: false})), {ref: UIEntitiesRef})
-      )),
-      tap((data: Playlist[]) => data.forEach(playlist => this.trackService.fetch(playlist.id))),
-    ).subscribe();
+  async fetch(): Promise<void> {
+    const data = await firstValueFrom(this.http.get<Playlist[]>(ENDPOINT));
+    const playlistMap = new Map<number, Playlist>();
+    const uiMap = new Map<number, PlaylistUi>();
+    for (const item of data) {
+      playlistMap.set(item.id, item);
+      uiMap.set(item.id, { id: item.id, collapsed: false });
+    }
+    this.playlists.set(playlistMap);
+    this.ui.set(uiMap);
+    await Promise.all(data.map((playlist) => this.trackService.fetch(playlist.id)));
   }
 
   create(spotifyUrl: string): void {
-    this.http.post(ENDPOINT, {spotifyUrl}).pipe(
-      trackRequestResult([CREATE_LOADING], { skipCache: true })
-    ).subscribe();
+    this.createLoading.set(true);
+    firstValueFrom(this.http.post(ENDPOINT, { spotifyUrl }))
+      .finally(() => this.createLoading.set(false))
+      .catch(() => {});
   }
 
   toggleCollapsed(id: number): void {
-    this.store.update(updateEntities(id, old => ({...old, collapsed: !old.collapsed}), { ref: UIEntitiesRef }));
+    this.ui.update((m) => {
+      const next = new Map(m);
+      const current = next.get(id) ?? { id, collapsed: false };
+      next.set(id, { ...current, collapsed: !current.collapsed });
+      return next;
+    });
   }
 
   delete(id: number): void {
-    this.delete$(id).subscribe();
+    void this.deleteAsync(id);
   }
 
   retryFailed(id: number): void {
-    this.http.get<void>(`${ENDPOINT}/retry/${id}`).subscribe();
+    firstValueFrom(this.http.get<void>(`${ENDPOINT}/retry/${id}`)).catch(
+      () => {},
+    );
   }
 
   rescan(id: number): void {
-    this.http.get<void>(`${ENDPOINT}/rescan/${id}`).subscribe();
+    firstValueFrom(this.http.get<void>(`${ENDPOINT}/rescan/${id}`)).catch(
+      () => {},
+    );
   }
 
   requeueMissing(id: number): void {
-    this.http.get<void>(`${ENDPOINT}/requeue-missing/${id}`).subscribe();
+    firstValueFrom(
+      this.http.get<void>(`${ENDPOINT}/requeue-missing/${id}`),
+    ).catch(() => {});
   }
 
   setActive(id: number, active: boolean): void {
-    this.http.put<void>(`${ENDPOINT}/${id}`, {active}).subscribe();
+    firstValueFrom(this.http.put<void>(`${ENDPOINT}/${id}`, { active })).catch(
+      () => {},
+    );
   }
 
-  private delete$(id: number): Observable<void> {
-    return this.http.delete<void>(`${ENDPOINT}/${id}`);
+  private async deleteAsync(id: number): Promise<void> {
+    await firstValueFrom(this.http.delete<void>(`${ENDPOINT}/${id}`));
   }
 
-  private groupActiveAndSortByCreation(a: Playlist & PlaylistUi, b: Playlist & PlaylistUi): number {
-    return a.active === b.active ? (b.createdAt - a.createdAt) : (a.active < b.active ? 1 : -1);
+  private upsert(playlist: Playlist): void {
+    this.playlists.update((m) => {
+      const next = new Map(m);
+      next.set(playlist.id, playlist);
+      return next;
+    });
+  }
+
+  private remove(id: number): void {
+    this.playlists.update((m) => {
+      const next = new Map(m);
+      next.delete(id);
+      return next;
+    });
+    this.ui.update((m) => {
+      const next = new Map(m);
+      next.delete(id);
+      return next;
+    });
+  }
+
+  private groupActiveAndSortByCreation(
+    a: PlaylistWithUi,
+    b: PlaylistWithUi,
+  ): number {
+    return a.active === b.active
+      ? b.createdAt - a.createdAt
+      : a.active < b.active
+        ? 1
+        : -1;
   }
 
   private initWsConnection(): void {
-    this.socket.on(WsPlaylistOperation.Update, (playlist: Playlist) => this.store.update(upsertEntities(playlist)));
-    this.socket.on(WsPlaylistOperation.Delete, ({id}: {id: number}) => this.store.update(deleteEntities(Number(id))));
-    this.socket.on(WsPlaylistOperation.New, (playlist: Playlist) =>
-      this.store.update(
-        upsertEntities(playlist),
-        upsertEntities({id: playlist.id, collapsed: false}, {ref: UIEntitiesRef})
-      )
+    this.socket.on(WsPlaylistOperation.Update, (playlist: Playlist) =>
+      this.upsert(playlist),
     );
+    this.socket.on(WsPlaylistOperation.Delete, ({ id }: { id: number }) =>
+      this.remove(Number(id)),
+    );
+    this.socket.on(WsPlaylistOperation.New, (playlist: Playlist) => {
+      this.upsert(playlist);
+      this.ui.update((m) => {
+        const next = new Map(m);
+        next.set(playlist.id, { id: playlist.id, collapsed: false });
+        return next;
+      });
+    });
   }
 }

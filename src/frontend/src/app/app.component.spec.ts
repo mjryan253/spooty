@@ -37,6 +37,8 @@ describe('AppComponent', () => {
   it('should validate Spotify URLs', () => {
     const fixture = TestBed.createComponent(AppComponent);
     httpMock.expectOne('/api/playlist').flush([]);
+    fixture.detectChanges();
+    httpMock.expectOne('/api/auth/spotify/status').flush({ linked: false });
     const app = fixture.componentInstance;
     app.url = 'https://open.spotify.com/playlist/abc123';
     expect(app.isValidSpotifyUrl).toBe(true);

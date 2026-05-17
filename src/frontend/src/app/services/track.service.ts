@@ -1,12 +1,9 @@
-import { Injectable } from '@angular/core';
-import {createStore} from "@ngneat/elf";
-import {deleteEntities, selectManyByPredicate, upsertEntities, withEntities} from "@ngneat/elf-entities";
-import {Socket} from "ngx-socket-io";
-import {map, Observable, tap} from "rxjs";
-import {HttpClient} from "@angular/common/http";
-import {Track, TrackStatusEnum} from "../models/track";
+import { computed, Injectable, Signal, signal } from '@angular/core';
+import { Socket } from 'ngx-socket-io';
+import { firstValueFrom } from 'rxjs';
+import { HttpClient } from '@angular/common/http';
+import { Track, TrackStatusEnum } from '../models/track';
 
-const STORE_NAME = 'track';
 const ENDPOINT = '/api/track';
 enum WsTrackOperation {
   New = 'trackNew',
@@ -15,29 +12,10 @@ enum WsTrackOperation {
 }
 
 @Injectable({
-  providedIn: 'root'
+  providedIn: 'root',
 })
 export class TrackService {
-
-  private store = createStore(
-    { name: STORE_NAME },
-    withEntities<Track>(),
-  );
-
-  getAllByPlaylist(id: number, status?: TrackStatusEnum): Observable<Track[]> {
-    return this.store.pipe(
-      selectManyByPredicate((track) => track?.playlistId === id),
-      map(data => data.filter(item => status === undefined || item.status === status)),
-    );
-  }
-
-  getCompletedByPlaylist(id: number): Observable<Track[]> {
-    return this.getAllByPlaylist(id, TrackStatusEnum.Completed);
-  }
-
-  getErrorByPlaylist(id: number): Observable<Track[]> {
-    return this.getAllByPlaylist(id, TrackStatusEnum.Error);
-  }
+  private readonly tracks = signal(new Map<number, Track>());
 
   constructor(
     private readonly http: HttpClient,
@@ -46,25 +24,75 @@ export class TrackService {
     this.initWsConnection();
   }
 
-  fetch(playlistId: number): void {
-    this.http.get<Track[]>(`${ENDPOINT}/playlist/${playlistId}`).pipe(
-      tap((data: Track[]) => this.store.update(upsertEntities(data.map(track => ({...track, playlistId}))))),
-    ).subscribe();
+  getAllByPlaylist(playlistId: number, status?: TrackStatusEnum): Signal<Track[]> {
+    return computed(() => {
+      const tracks = this.tracks();
+      return [...tracks.values()].filter(
+        (t) =>
+          t.playlistId === playlistId &&
+          (status === undefined || t.status === status),
+      );
+    });
+  }
+
+  getCompletedByPlaylist(playlistId: number): Signal<Track[]> {
+    return this.getAllByPlaylist(playlistId, TrackStatusEnum.Completed);
+  }
+
+  getErrorByPlaylist(playlistId: number): Signal<Track[]> {
+    return this.getAllByPlaylist(playlistId, TrackStatusEnum.Error);
+  }
+
+  async fetch(playlistId: number): Promise<void> {
+    const data = await firstValueFrom(
+      this.http.get<Track[]>(`${ENDPOINT}/playlist/${playlistId}`),
+    );
+    this.upsertMany(data.map((track) => ({ ...track, playlistId })));
   }
 
   delete(id: number): void {
-    this.http.delete(`${ENDPOINT}/${id}`).subscribe();
+    firstValueFrom(this.http.delete(`${ENDPOINT}/${id}`)).catch(() => {});
   }
 
   retry(id: number): void {
-    this.http.get(`${ENDPOINT}/retry/${id}`).subscribe();
+    firstValueFrom(this.http.get(`${ENDPOINT}/retry/${id}`)).catch(() => {});
+  }
+
+  private upsert(track: Track): void {
+    this.tracks.update((m) => {
+      const next = new Map(m);
+      next.set(track.id, track);
+      return next;
+    });
+  }
+
+  private upsertMany(tracks: Track[]): void {
+    this.tracks.update((m) => {
+      const next = new Map(m);
+      for (const track of tracks) {
+        next.set(track.id, track);
+      }
+      return next;
+    });
+  }
+
+  private remove(id: number): void {
+    this.tracks.update((m) => {
+      const next = new Map(m);
+      next.delete(id);
+      return next;
+    });
   }
 
   private initWsConnection(): void {
-    this.socket.on(WsTrackOperation.Update, (track: Track) => this.store.update(upsertEntities(track)));
-    this.socket.on(WsTrackOperation.Delete, ({id}: {id: number}) => this.store.update(deleteEntities(id)));
-    this.socket.on(WsTrackOperation.New, ({track, playlistId}: {track: Track, playlistId: number}) =>
-      this.store.update(upsertEntities([{...track, playlistId}]))
+    this.socket.on(WsTrackOperation.Update, (track: Track) => this.upsert(track));
+    this.socket.on(WsTrackOperation.Delete, ({ id }: { id: number }) =>
+      this.remove(Number(id)),
+    );
+    this.socket.on(
+      WsTrackOperation.New,
+      ({ track, playlistId }: { track: Track; playlistId: number }) =>
+        this.upsert({ ...track, playlistId }),
     );
   }
 }

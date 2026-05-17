@@ -16,6 +16,7 @@ config/*
 
 # Test output
 coverage/
+chrome-headless-shell/
 
 # IDE / OS
 .idea/
