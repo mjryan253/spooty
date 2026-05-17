@@ -51,8 +51,7 @@ describe('removeOrphanIntermediateFiles', () => {
   it('does not remove unrelated files in the same folder', () => {
     const unlinked: string[] = [];
     const existsSync = (p: string) => p === mp3 || p.includes('Other');
-    const statSync = () =>
-      ({ isFile: () => true, size: 100 }) as fs.Stats;
+    const statSync = () => ({ isFile: () => true, size: 100 }) as fs.Stats;
     const readdirSync = () => ['Artist - Song.mp3', 'Other - Song.webm'];
 
     removeOrphanIntermediateFiles(

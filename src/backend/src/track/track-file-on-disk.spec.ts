@@ -1,7 +1,4 @@
-import {
-  isNonEmptyFileAtPath,
-  trackFileExists,
-} from './track-file-on-disk';
+import { isNonEmptyFileAtPath, trackFileExists } from './track-file-on-disk';
 import { TrackEntity } from './track.entity';
 import { PlaylistEntity } from '../playlist/playlist.entity';
 
@@ -79,7 +76,12 @@ describe('trackFileExists', () => {
 
   it('returns false when playlist is missing', () => {
     expect(
-      trackFileExists(track, undefined, () => '/any', () => true),
+      trackFileExists(
+        track,
+        undefined,
+        () => '/any',
+        () => true,
+      ),
     ).toBe(false);
   });
 
@@ -96,7 +98,12 @@ describe('trackFileExists', () => {
 
   it('returns false when output file check fails', () => {
     expect(
-      trackFileExists(track, playlist, () => '/missing.mp3', () => false),
+      trackFileExists(
+        track,
+        playlist,
+        () => '/missing.mp3',
+        () => false,
+      ),
     ).toBe(false);
   });
 });

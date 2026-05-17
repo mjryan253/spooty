@@ -6,7 +6,9 @@ import {
 describe('formatYtDlpDownloadError', () => {
   it('adds cookie guidance for HTTP 302', () => {
     const msg = formatYtDlpDownloadError(
-      new Error('yt-dlp exited with code 1: Unknown yt-dlp error\nhttp status: 302'),
+      new Error(
+        'yt-dlp exited with code 1: Unknown yt-dlp error\nhttp status: 302',
+      ),
     );
     expect(msg).toContain('HTTP 302');
     expect(msg).toContain('cookies.txt');
@@ -39,7 +41,9 @@ describe('isLikelyPostProcessingNoise', () => {
   it('returns true when message contains http status 302', () => {
     expect(
       isLikelyPostProcessingNoise(
-        new Error('yt-dlp exited with code 1: Unknown yt-dlp error\nhttp status: 302'),
+        new Error(
+          'yt-dlp exited with code 1: Unknown yt-dlp error\nhttp status: 302',
+        ),
       ),
     ).toBe(true);
   });

@@ -46,8 +46,7 @@ export function removeOrphanIntermediateFiles(
     if (name === mp3Name || !name.startsWith(stem)) {
       continue;
     }
-    const isOrphan =
-      ORPHAN_MEDIA_PATTERN.test(name) || name.endsWith('.part');
+    const isOrphan = ORPHAN_MEDIA_PATTERN.test(name) || name.endsWith('.part');
     if (!isOrphan) {
       continue;
     }

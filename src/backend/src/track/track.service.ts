@@ -132,7 +132,10 @@ export class TrackService {
           jobId: `id-${track.id}`,
         });
         if (track.status !== TrackStatusEnum.New) {
-          await this.update(track.id, { ...track, status: TrackStatusEnum.New });
+          await this.update(track.id, {
+            ...track,
+            status: TrackStatusEnum.New,
+          });
         }
         requeued++;
       }
@@ -152,7 +155,9 @@ export class TrackService {
     if (track.playlist && this.isTrackFileOnDisk(track, track.playlist)) {
       const outputPath = this.getFolderName(track, track.playlist);
       removeOrphanIntermediateFiles(outputPath);
-      this.logger.debug(`File already exists, skipping retry search: ${outputPath}`);
+      this.logger.debug(
+        `File already exists, skipping retry search: ${outputPath}`,
+      );
       await this.update(id, {
         ...track,
         status: TrackStatusEnum.Completed,
@@ -196,10 +201,7 @@ export class TrackService {
     if (!current) {
       return;
     }
-    if (
-      current.playlist &&
-      this.isTrackFileOnDisk(current, current.playlist)
-    ) {
+    if (current.playlist && this.isTrackFileOnDisk(current, current.playlist)) {
       const outputPath = this.getFolderName(current, current.playlist);
       removeOrphanIntermediateFiles(outputPath);
       this.logger.debug(`File already exists, skipping search: ${outputPath}`);
@@ -259,7 +261,9 @@ export class TrackService {
     const folderName = this.getFolderName(track, track.playlist);
     if (this.isTrackFileOnDisk(track, track.playlist)) {
       removeOrphanIntermediateFiles(folderName);
-      this.logger.debug(`File already exists, skipping download: ${folderName}`);
+      this.logger.debug(
+        `File already exists, skipping download: ${folderName}`,
+      );
       await this.update(track.id, {
         ...track,
         status: TrackStatusEnum.Completed,
@@ -282,8 +286,7 @@ export class TrackService {
         );
       }
     } catch (err) {
-      const stderr =
-        err instanceof YtDlpDownloadError ? err.stderr : undefined;
+      const stderr = err instanceof YtDlpDownloadError ? err.stderr : undefined;
       const noise = isLikelyPostProcessingNoise(err);
       const fileOk = this.isTrackFileOnDisk(track, track.playlist);
       if (noise) {
@@ -321,13 +324,8 @@ export class TrackService {
     return false;
   }
 
-  isTrackFileOnDisk(
-    track: TrackEntity,
-    playlist: PlaylistEntity,
-  ): boolean {
-    return trackFileExists(track, playlist, (t, p) =>
-      this.getFolderName(t, p),
-    );
+  isTrackFileOnDisk(track: TrackEntity, playlist: PlaylistEntity): boolean {
+    return trackFileExists(track, playlist, (t, p) => this.getFolderName(t, p));
   }
 
   getTrackFileName(track: TrackEntity): string {

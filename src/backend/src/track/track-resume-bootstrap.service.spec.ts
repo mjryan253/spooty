@@ -4,7 +4,9 @@ import { TrackService } from './track.service';
 
 describe('TrackResumeBootstrapService', () => {
   it('calls resumeStuckTracks on application bootstrap', async () => {
-    const trackService = { resumeStuckTracks: jest.fn().mockResolvedValue(undefined) };
+    const trackService = {
+      resumeStuckTracks: jest.fn().mockResolvedValue(undefined),
+    };
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TrackResumeBootstrapService,

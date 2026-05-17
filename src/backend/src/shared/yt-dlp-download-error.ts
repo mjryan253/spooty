@@ -4,8 +4,7 @@ const YT_DLP_COOKIE_WIKI =
 const COOKIE_HINT =
   'Refresh your bind-mounted cookies.txt per the yt-dlp wiki (incognito export; do not browse YouTube on that account while downloading).';
 
-const NOISY_EXIT_PATTERN =
-  /exited with code 1.*unknown yt-dlp error/i;
+const NOISY_EXIT_PATTERN = /exited with code 1.*unknown yt-dlp error/i;
 
 export class YtDlpDownloadError extends Error {
   readonly stderr: string;
