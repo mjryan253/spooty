@@ -25,6 +25,12 @@
         <i>&nbsp;</i>
       </ng-container>
       <i class="fa-solid fa-repeat is-clickable hover-icon" title="Retry download failed tracks" (click)="retryFailed(playlist.id)"></i>&nbsp;
+      <i class="fa-solid fa-magnifying-glass is-clickable hover-icon"
+         title="Rescan disk for this playlist (mark Completed/missing based on files)"
+         (click)="rescan(playlist.id)"></i>&nbsp;
+      <i class="fa-solid fa-cloud-arrow-down is-clickable hover-icon"
+         title="Re-download any tracks whose file is missing"
+         (click)="requeueMissing(playlist.id)"></i>&nbsp;
       <i class="fa-solid fa-xmark is-clickable hover-icon" title="Remove playlist from list" (click)="delete(playlist.id)"></i>&nbsp;
       <i *ngIf="playlist.active" class="fa-solid fa-toggle-on hover-icon-reversed"></i>&nbsp;
       <span *ngIf="!playlist.error" class="is-size-6 has-text-weight-medium">{{trackCompletedCount$ | async}}/{{trackCount$ | async}}</span>&nbsp;

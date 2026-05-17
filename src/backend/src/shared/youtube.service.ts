@@ -7,6 +7,7 @@ import { YtDlp } from 'ytdlp-nodejs';
 import * as yts from 'yt-search';
 import * as fs from 'fs';
 import { removeOrphanIntermediateFiles } from './yt-dlp-intermediate-cleanup';
+import { YtDlpDownloadError } from './yt-dlp-download-error';
 const NodeID3 = require('node-id3');
 
 const HEADERS = {
@@ -99,19 +100,30 @@ export class YoutubeService {
       throw Error('youtubeUrl is null or undefined');
     }
     const ytdlp = new YtDlp();
-    await ytdlp.downloadAudio(
-      track.youtubeUrl,
-      this.configService.get<'m4a'>(EnvironmentEnum.FORMAT),
-      {
-        output,
-        ...this.getCookiesOptions(),
-        ...this.getYtDlpPacingOptions(),
-        ...this.getYtDlpCleanupOptions(),
-        headers: HEADERS,
-        jsRuntime: 'node',
-        audioQuality: this.configService.get<string>('QUALITY'),
-      },
-    );
+    const audioFormat = this.configService.get<string>(
+      EnvironmentEnum.FORMAT,
+    ) as 'mp3';
+    let stderr = '';
+    const dl = ytdlp.download(track.youtubeUrl, {
+      extractAudio: true,
+      audioFormat,
+      output,
+      ...this.getCookiesOptions(),
+      ...this.getYtDlpPacingOptions(),
+      ...this.getYtDlpCleanupOptions(),
+      headers: HEADERS,
+      jsRuntime: 'node',
+      audioQuality: this.configService.get<string>('QUALITY'),
+    });
+    dl.on('stderr', (chunk) => {
+      stderr += chunk;
+    });
+    try {
+      await dl.run();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new YtDlpDownloadError(message, { cause: err, stderr });
+    }
     removeOrphanIntermediateFiles(output);
     this.logger.debug(
       `Downloaded ${track.artist} - ${track.name} to ${output}`,

@@ -77,4 +77,19 @@ describe('PlaylistService (spotifyUrl dedup)', () => {
     expect(trackService.retry).toHaveBeenCalledWith(10);
     expect(trackService.getAllByPlaylist).toHaveBeenCalledWith(1);
   });
+
+  it('requeueMissingTracks calls retry for every track in the playlist', async () => {
+    trackService.getAllByPlaylist.mockResolvedValue([
+      { id: 10, status: TrackStatusEnum.Completed },
+      { id: 11, status: TrackStatusEnum.Error },
+    ]);
+    trackService.retry.mockResolvedValue(undefined);
+
+    await service.requeueMissingTracks(1);
+
+    expect(trackService.getAllByPlaylist).toHaveBeenCalledWith(1);
+    expect(trackService.retry).toHaveBeenCalledTimes(2);
+    expect(trackService.retry).toHaveBeenCalledWith(10);
+    expect(trackService.retry).toHaveBeenCalledWith(11);
+  });
 });

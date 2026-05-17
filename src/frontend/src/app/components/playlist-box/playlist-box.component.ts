@@ -57,6 +57,14 @@ export class PlaylistBoxComponent {
     this.service.retryFailed(id);
   }
 
+  rescan(id: number): void {
+    this.service.rescan(id);
+  }
+
+  requeueMissing(id: number): void {
+    this.service.requeueMissing(id);
+  }
+
   toggleActive(id: number, currentActive: boolean): void {
     this.service.setActive(id, !currentActive)
   }

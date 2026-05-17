@@ -7,6 +7,7 @@ import { TrackEntity, TrackStatusEnum } from './track.entity';
 import { PlaylistEntity } from '../playlist/playlist.entity';
 import { UtilsService } from '../shared/utils.service';
 import { YoutubeService } from '../shared/youtube.service';
+import { YtDlpDownloadError } from '../shared/yt-dlp-download-error';
 import * as fs from 'fs';
 
 function mockNonEmptyOutputFile(
@@ -22,6 +23,11 @@ function mockNonEmptyOutputFile(
 
 describe('TrackService (skip existing file)', () => {
   let service: TrackService;
+  let youtubeService: {
+    findOnYoutubeOne: jest.Mock;
+    downloadAndFormat: jest.Mock;
+    addImage: jest.Mock;
+  };
   let existsSyncSpy: jest.SpyInstance;
   let statSyncSpy: jest.SpyInstance;
   const repository = {
@@ -83,13 +89,18 @@ describe('TrackService (skip existing file)', () => {
           useValue: {
             findOnYoutubeOne: jest.fn(),
             downloadAndFormat: jest.fn(),
-            addImage: jest.fn(),
+            addImage: jest.fn().mockResolvedValue(undefined),
           },
         },
       ],
     }).compile();
 
     service = module.get(TrackService);
+    youtubeService = module.get(YoutubeService);
+    youtubeService.downloadAndFormat.mockReset();
+    youtubeService.downloadAndFormat.mockResolvedValue(undefined);
+    youtubeService.addImage.mockReset();
+    youtubeService.addImage.mockResolvedValue(undefined);
     service.io = { emit: jest.fn() } as any;
   });
 
@@ -258,6 +269,70 @@ describe('TrackService (skip existing file)', () => {
     expect(repository.update).not.toHaveBeenCalled();
   });
 
+  it('downloadFromYoutube marks completed on noisy yt-dlp exit when mp3 exists', async () => {
+    existsSyncSpy.mockReturnValueOnce(false).mockReturnValue(true);
+    statSyncSpy.mockReturnValue({
+      isFile: () => true,
+      size: 1024,
+    } as fs.Stats);
+    const track = {
+      id: 10,
+      artist: 'A',
+      name: 'B',
+      youtubeUrl: 'https://youtube.com/watch?v=x',
+      coverUrl: 'https://cover.example/a.jpg',
+      playlist,
+    } as TrackEntity;
+    repository.findOne.mockResolvedValue(track);
+    youtubeService.downloadAndFormat.mockRejectedValue(
+      new YtDlpDownloadError('yt-dlp exited with code 1: Unknown yt-dlp error', {
+        stderr: 'http status: 302',
+      }),
+    );
+
+    await service.downloadFromYoutube(track);
+
+    expect(youtubeService.addImage).toHaveBeenCalledWith(
+      expect.any(String),
+      track.coverUrl,
+      track.name,
+      track.artist,
+    );
+    expect(repository.update).toHaveBeenLastCalledWith(
+      10,
+      expect.objectContaining({ status: TrackStatusEnum.Completed }),
+    );
+    expect(repository.update).not.toHaveBeenCalledWith(
+      10,
+      expect.objectContaining({ status: TrackStatusEnum.Error }),
+    );
+  });
+
+  it('downloadFromYoutube marks error on noisy yt-dlp exit when mp3 is missing', async () => {
+    existsSyncSpy.mockReturnValue(false);
+    const track = {
+      id: 11,
+      artist: 'A',
+      name: 'B',
+      youtubeUrl: 'https://youtube.com/watch?v=x',
+      playlist,
+    } as TrackEntity;
+    repository.findOne.mockResolvedValue(track);
+    youtubeService.downloadAndFormat.mockRejectedValue(
+      new YtDlpDownloadError('yt-dlp exited with code 1: Unknown yt-dlp error', {
+        stderr: 'http status: 302',
+      }),
+    );
+
+    await service.downloadFromYoutube(track);
+
+    expect(youtubeService.addImage).not.toHaveBeenCalled();
+    expect(repository.update).toHaveBeenCalledWith(
+      11,
+      expect.objectContaining({ status: TrackStatusEnum.Error }),
+    );
+  });
+
   it('downloadFromYoutube skips yt-dlp and avoids Downloading status when file exists', async () => {
     mockNonEmptyOutputFile(existsSyncSpy, statSyncSpy);
     const track = {
@@ -279,5 +354,65 @@ describe('TrackService (skip existing file)', () => {
       5,
       expect.objectContaining({ status: TrackStatusEnum.Downloading }),
     );
+  });
+
+  it('rescanFromDisk marks completed when file exists and track was in error', async () => {
+    mockNonEmptyOutputFile(existsSyncSpy, statSyncSpy);
+    const track = {
+      id: 12,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Error,
+      error: 'failed',
+    } as TrackEntity;
+    repository.findOne.mockResolvedValue(track);
+
+    await service.rescanFromDisk(12);
+
+    expect(repository.update).toHaveBeenCalledWith(
+      12,
+      expect.objectContaining({ status: TrackStatusEnum.Completed }),
+    );
+    expect(trackSearchQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('rescanFromDisk does not update when file exists and track is already completed', async () => {
+    mockNonEmptyOutputFile(existsSyncSpy, statSyncSpy);
+    const track = {
+      id: 13,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Completed,
+    } as TrackEntity;
+    repository.findOne.mockResolvedValue(track);
+
+    await service.rescanFromDisk(13);
+
+    expect(repository.update).not.toHaveBeenCalled();
+    expect(trackSearchQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('rescanFromDisk marks error when file missing and track was completed', async () => {
+    const track = {
+      id: 14,
+      artist: 'A',
+      name: 'B',
+      playlist,
+      status: TrackStatusEnum.Completed,
+    } as TrackEntity;
+    repository.findOne.mockResolvedValue(track);
+
+    await service.rescanFromDisk(14);
+
+    expect(repository.update).toHaveBeenCalledWith(
+      14,
+      expect.objectContaining({
+        status: TrackStatusEnum.Error,
+        error: 'Output file missing on disk',
+      }),
+    );
+    expect(trackSearchQueue.add).not.toHaveBeenCalled();
   });
 });

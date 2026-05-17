@@ -1,7 +1,30 @@
-/node_modules
-/dist
-/local-docs
-/.idea
+# Dependencies & build (npm workspaces)
+node_modules/
+dist/
+
+# Local secrets — copy from .env.example
+.env
+
+# Runtime data (docker-compose volumes; see README)
+downloads/
+config/*
+!config/.gitkeep
 **/*.sqlite
-# Local Netlify folder
-.netlify
+
+# Logs & debug artifacts
+*.log
+
+# Test output
+coverage/
+
+# IDE / OS
+.idea/
+.DS_Store
+Thumbs.db
+.goutputstream-*
+
+# Local developer notes (not required to run the app)
+local-docs/
+
+# Unused hosting folder
+.netlify/

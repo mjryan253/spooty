@@ -12,7 +12,11 @@ import { UtilsService } from '../shared/utils.service';
 import { Queue } from 'bullmq';
 import { InjectQueue } from '@nestjs/bullmq';
 import { YoutubeService } from '../shared/youtube.service';
-import { formatYtDlpDownloadError } from '../shared/yt-dlp-download-error';
+import {
+  formatYtDlpDownloadError,
+  isLikelyPostProcessingNoise,
+  YtDlpDownloadError,
+} from '../shared/yt-dlp-download-error';
 import { removeOrphanIntermediateFiles } from '../shared/yt-dlp-intermediate-cleanup';
 import { trackFileExists } from './track-file-on-disk';
 
@@ -160,6 +164,33 @@ export class TrackService {
     await this.update(id, { ...track, status: TrackStatusEnum.New });
   }
 
+  /** Two-way reconcile one track with disk. No queueing. */
+  async rescanFromDisk(id: number): Promise<void> {
+    const track = await this.get(id);
+    if (!track || !track.playlist) {
+      return;
+    }
+    const onDisk = this.isTrackFileOnDisk(track, track.playlist);
+    if (onDisk) {
+      removeOrphanIntermediateFiles(this.getFolderName(track, track.playlist));
+      if (track.status !== TrackStatusEnum.Completed || track.error) {
+        await this.update(id, {
+          ...track,
+          status: TrackStatusEnum.Completed,
+          error: undefined,
+        });
+      }
+      return;
+    }
+    if (track.status === TrackStatusEnum.Completed) {
+      await this.update(id, {
+        ...track,
+        status: TrackStatusEnum.Error,
+        error: 'Output file missing on disk',
+      });
+    }
+  }
+
   async findOnYoutube(track: TrackEntity): Promise<void> {
     const current = await this.get(track.id);
     if (!current) {
@@ -251,8 +282,35 @@ export class TrackService {
         );
       }
     } catch (err) {
-      this.logger.error(err);
-      error = formatYtDlpDownloadError(err);
+      const stderr =
+        err instanceof YtDlpDownloadError ? err.stderr : undefined;
+      const noise = isLikelyPostProcessingNoise(err);
+      const fileOk = this.isTrackFileOnDisk(track, track.playlist);
+      if (noise) {
+        this.logger.warn(
+          `yt-dlp noisy exit for ${track.artist} - ${track.name}; mp3 ${fileOk ? 'present' : 'missing'}. stderr:\n${stderr ?? '(none captured)'}`,
+        );
+      }
+      if (noise && fileOk) {
+        removeOrphanIntermediateFiles(folderName);
+        if (coverUrl) {
+          try {
+            await this.youtubeService.addImage(
+              folderName,
+              coverUrl,
+              track.name,
+              track.artist,
+            );
+          } catch (tagErr) {
+            this.logger.warn(
+              `addImage failed after noisy yt-dlp exit: ${tagErr}`,
+            );
+          }
+        }
+      } else {
+        this.logger.error(err);
+        error = formatYtDlpDownloadError(err);
+      }
     }
     const updatedTrack = {
       ...track,
