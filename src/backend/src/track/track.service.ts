@@ -9,9 +9,9 @@ import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server } from 'socket.io';
 import { EnvironmentEnum } from '../environmentEnum';
 import { UtilsService } from '../shared/utils.service';
-import { Queue } from 'bullmq';
-import { InjectQueue } from '@nestjs/bullmq';
-import { YoutubeService } from '../shared/youtube.service';
+import { SpotdlService } from '../shared/spotdl.service';
+import { DownloadQueueService } from './download-queue.service';
+import { SkipDownloadBurstService } from './skip-download-burst.service';
 import * as fs from 'fs';
 
 enum WsTrackOperation {
@@ -29,11 +29,11 @@ export class TrackService {
   constructor(
     @InjectRepository(TrackEntity)
     private repository: Repository<TrackEntity>,
-    @InjectQueue('track-download-processor') private trackDownloadQueue: Queue,
-    @InjectQueue('track-search-processor') private trackSearchQueue: Queue,
     private readonly configService: ConfigService,
     private readonly utilsService: UtilsService,
-    private readonly youtubeService: YoutubeService,
+    private readonly spotdlService: SpotdlService,
+    private readonly downloadQueue: DownloadQueueService,
+    private readonly skipDownloadBurst: SkipDownloadBurstService,
   ) {}
 
   getAll(
@@ -58,9 +58,7 @@ export class TrackService {
 
   async create(track: TrackEntity, playlist?: PlaylistEntity): Promise<void> {
     const savedTrack = await this.repository.save({ ...track, playlist });
-    await this.trackSearchQueue.add('', savedTrack, {
-      jobId: `id-${savedTrack.id}`,
-    });
+    this.enqueueDownload(savedTrack);
     this.io.emit(WsTrackOperation.New, {
       track: savedTrack,
       playlistId: playlist.id,
@@ -74,41 +72,22 @@ export class TrackService {
 
   async retry(id: number): Promise<void> {
     const track = await this.get(id);
-    await this.trackSearchQueue.add('', track, { jobId: `id-${id}` });
-    await this.update(id, { ...track, status: TrackStatusEnum.New });
+    await this.update(id, { ...track, status: TrackStatusEnum.Queued });
+    this.enqueueDownload({ ...track, status: TrackStatusEnum.Queued });
   }
 
-  async findOnYoutube(track: TrackEntity): Promise<void> {
-    if (!(await this.get(track.id))) {
-      return;
-    }
-    await this.update(track.id, {
-      ...track,
-      status: TrackStatusEnum.Searching,
+  private enqueueDownload(track: TrackEntity): void {
+    this.downloadQueue.enqueue(async () => {
+      const skippedExisting = await this.downloadTrack(track);
+      await this.skipDownloadBurst.recordDownloadJobResult(skippedExisting);
     });
-    let updatedTrack: TrackEntity;
-    try {
-      const youtubeUrl = await this.youtubeService.findOnYoutubeOne(
-        track.artist,
-        track.name,
-      );
-      updatedTrack = { ...track, youtubeUrl, status: TrackStatusEnum.Queued };
-    } catch (err) {
-      this.logger.error(err);
-      updatedTrack = {
-        ...track,
-        error: String(err),
-        status: TrackStatusEnum.Error,
-      };
-    }
-    await this.trackDownloadQueue.add('', updatedTrack, {
-      jobId: `id-${updatedTrack.id}`,
-    });
-    await this.update(track.id, updatedTrack);
   }
 
-  /** @returns true when the output file already existed and yt-dlp was skipped */
-  async downloadFromYoutube(track: TrackEntity): Promise<boolean> {
+  /**
+   * spotdl finds, downloads, converts and tags the track in one step.
+   * @returns true when the output file already existed and the download was skipped
+   */
+  async downloadTrack(track: TrackEntity): Promise<boolean> {
     if (!(await this.get(track.id))) {
       return false;
     }
@@ -117,13 +96,6 @@ export class TrackService {
         `Track or playlist field is null or undefined: name=${track.name}, artist=${track.artist}, playlist=${track.playlist ? 'ok' : 'null'}`,
       );
       return false;
-    }
-    // Use track's own coverUrl if available, otherwise fall back to playlist coverUrl
-    const coverUrl = track.coverUrl || track.playlist.coverUrl;
-    if (!coverUrl) {
-      this.logger.warn(
-        `No cover art available for track: ${track.artist} - ${track.name}`,
-      );
     }
     await this.update(track.id, {
       ...track,
@@ -139,15 +111,7 @@ export class TrackService {
         );
         skippedExistingFile = true;
       } else {
-        await this.youtubeService.downloadAndFormat(track, folderName);
-        if (coverUrl) {
-          await this.youtubeService.addImage(
-            folderName,
-            coverUrl,
-            track.name,
-            track.artist,
-          );
-        }
+        await this.spotdlService.download(track, folderName);
       }
     } catch (err) {
       this.logger.error(err);

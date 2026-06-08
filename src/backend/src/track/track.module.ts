@@ -5,27 +5,16 @@ import { TrackService } from './track.service';
 import { TrackController } from './track.controller';
 import { ConfigModule } from '@nestjs/config';
 import { SharedModule } from '../shared/shared.module';
-import { BullModule } from '@nestjs/bullmq';
-import { TrackDownloadProcessor } from './track-download.processor';
-import { TrackSearchProcessor } from './track-search.processor';
+import { DownloadQueueService } from './download-queue.service';
 import { SkipDownloadBurstService } from './skip-download-burst.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([TrackEntity]),
-    BullModule.registerQueue(
-      { name: 'track-search-processor' },
-      { name: 'track-download-processor' },
-    ),
     ConfigModule,
     SharedModule,
   ],
-  providers: [
-    TrackService,
-    TrackDownloadProcessor,
-    TrackSearchProcessor,
-    SkipDownloadBurstService,
-  ],
+  providers: [TrackService, DownloadQueueService, SkipDownloadBurstService],
   controllers: [TrackController],
   exports: [TrackService],
 })

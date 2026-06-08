@@ -1,4 +1,4 @@
-name: update-ytdl
+name: update-spotdl
 
 on:
   workflow_dispatch:
@@ -7,36 +7,37 @@ on:
     - cron: '0 0 * * *'
 
 jobs:
-  update-ytdl:
+  update-spotdl:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           token: ${{ secrets.AUTOUPDATE_PAT }}
       - name: Get tags
         run: git fetch --tags origin
       - name: Set up Node
-        uses: actions/setup-node@v2
+        uses: actions/setup-node@v4
         with:
-          node-version: '18.x'
+          node-version: '20.20.0'
       - name: Set up docker builder
         run: docker buildx create --name container --driver=docker-container
-      - name: Update ytdlp-nodejs and release
+      - name: Bump pinned spotdl version and release
         run: |
           docker login --username=${{ secrets.DOCKER_USERNAME }} --password=${{ secrets.DOCKER_PASSWORD }}
-          npm ci --only=dev
-          npm run check:lib
-          if git diff --exit-code; then
-            echo "NO changes detected"
+          latest=$(curl -fsSL https://pypi.org/pypi/spotdl/json | python3 -c "import sys, json; print(json.load(sys.stdin)['info']['version'])")
+          current=$(grep -oP 'spotdl==\K[0-9.]+' Dockerfile)
+          echo "current=$current latest=$latest"
+          if [ "$current" = "$latest" ]; then
+            echo "spotdl already up to date"
           else
-            npm update ytdlp-nodejs -w backend
+            sed -i "s/spotdl==$current/spotdl==$latest/" Dockerfile
             git config --global user.email "updater@spooty"
             git config --global user.name "AutoUpdater"
-            git add .
-            git commit -m "fix(ytdl): Upgrade ytdl package (automated)"
+            git add Dockerfile
+            git commit -m "fix(spotdl): upgrade spotdl to $latest (automated)"
+            npm ci
             npm run release -- --cli
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.AUTOUPDATE_PAT }}
-

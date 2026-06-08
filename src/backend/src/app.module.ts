@@ -12,7 +12,6 @@ import { SpotifyUserAuthEntity } from './auth/spotify-user-auth.entity';
 import { AuthModule } from './auth/auth.module';
 import { resolve } from 'path';
 import { EnvironmentEnum } from './environmentEnum';
-import { BullModule } from '@nestjs/bullmq';
 
 @Module({
   imports: [
@@ -47,19 +46,6 @@ import { BullModule } from '@nestjs/bullmq';
           exclude: ['/api/(.*)'],
         },
       ],
-      inject: [ConfigService],
-    }),
-    BullModule.forRootAsync({
-      imports: [ConfigModule],
-      useFactory: async (configService: ConfigService) => ({
-        defaultJobOptions: {
-          removeOnComplete: true,
-        },
-        connection: {
-          host: configService.get<string>(EnvironmentEnum.REDIS_HOST),
-          port: configService.get<number>(EnvironmentEnum.REDIS_PORT),
-        },
-      }),
       inject: [ConfigService],
     }),
     TrackModule,

@@ -1,0 +1,24 @@
+# Spooty — Docker Compose example.
+# Copy to docker-compose.yml (gitignored) and adjust paths for your machine:
+#   cp docker-compose.example.yml docker-compose.yml
+# Then provide your Spotify credentials in .env:
+#   cp .env.example .env   # edit SPOTIFY_CLIENT_ID / SPOTIFY_CLIENT_SECRET
+#
+# spotdl, ffmpeg and Python are baked into the image — no Redis or extra services needed.
+services:
+  spooty:
+    build: .
+    image: spooty:local
+    container_name: spooty
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    volumes:
+      # Where downloaded files land on the host:
+      - ./downloads:/spooty/backend/downloads
+      # Persist the SQLite DB (Spotify login + subscriptions) across container recreation:
+      - ./config:/spooty/backend/config
+      # Optional: YouTube cookies — then set YT_COOKIES_FILE=/spooty/config/cookies.txt in .env
+      # - ./cookies.txt:/spooty/config/cookies.txt

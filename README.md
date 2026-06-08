@@ -83,9 +83,9 @@ Spooty can be also build from source files on your own.
 
 #### Requirements
 - Node v20.20.0 (it is recommended to use `nvm` node version manager to install proper version of node)
-- Redis in memory cache
 - Ffmpeg
 - Python3
+- [spotDL](https://github.com/spotDL/spotify-downloader) on the `PATH` (`pip install spotdl`) — handles YouTube matching, downloading and tagging
 
 #### Process
 - install Node v20.20.0 using `nvm install` and use that node version `nvm use`
@@ -110,11 +110,9 @@ Some behaviour and settings of Spooty can be configured using environment variab
  FE_PATH                 | `../frontend/browser` (relative to backend) | Path to frontend part of application                                                                                                                                      |
  DOWNLOADS_PATH          | `./downloads` (relative to backend)         | Path where downaloded files will be stored                                                                                                                                |
  FORMAT                  | `mp3`                                       | Format of downloaded files ('aac', 'flac', 'mp3', 'm4a', 'opus', 'vorbis', 'wav', 'alac')                                                                                 |
- QUALITY                 | undefined                                   | Audio quality (0-9 VBR or specific bitrate) of downloaded files                                                                                                           |
+ QUALITY                 | undefined                                   | Audio bitrate passed to spotdl `--bitrate` (e.g. `128k`–`320k`, or `auto`/`disable`)                                                                                      |
  PORT                    | 3000                                        | Port of Spooty server                                                                                                                                                     |
- REDIS_PORT              | 6379                                        | Port of Redis server                                                                                                                                                      |
- REDIS_HOST              | localhost                                   | Host of Redis server                                                                                                                                                      |
- RUN_REDIS               | false                                       | Whenever Redis server should be started from backend (recommended for Docker environment)                                                                                 |
+ DOWNLOAD_CONCURRENCY    | 1                                           | Number of tracks downloaded concurrently by the in-process queue                                                                                                          |
  SPOTIFY_CLIENT_ID       | your_client_id                              | Client ID of your Spotify application (required)                                                                                                                          |
  SPOTIFY_CLIENT_SECRET   | your_client_secret                          | Client Secret of your Spotify application (required)                                                                                                                      |
  SPOTIFY_REDIRECT_URI    |                                             | Exact OAuth redirect URL (e.g. `http://127.0.0.1:3000/api/auth/spotify/callback`). Must match Spotify app settings. Enables user login for full playlist Web API access. |
@@ -122,8 +120,7 @@ Some behaviour and settings of Spooty can be configured using environment variab
  YT_DOWNLOADS_PER_MINUTE | 3                                           | Set the maximum number of YouTube downloads started per minute                                                                                                            |
  YT_SKIP_BURST_LIMIT     | 5                                           | After this many consecutive skips (output file already on disk), pause before the next download job (see `YT_SKIP_BURST_COOLDOWN_MS`)                                     |
  YT_SKIP_BURST_COOLDOWN_MS | 60000                                     | Extra milliseconds to wait when the skip burst limit is reached                                                                                                         |
- YT_COOKIES              |                                             | Browser name to automatically extract YouTube cookies from (e.g. `chrome`, `firefox`). Only works when running Spooty natively (not in Docker). See [below](#yt_cookies---browser-based-cookies-non-docker). |
- YT_COOKIES_FILE         | `./config/cookies.txt`                      | Path to a Netscape-format `cookies.txt` file. Recommended for Docker deployments. See [below](#yt_cookies_file---cookies-file-recommended-for-docker).                    |
+ YT_COOKIES_FILE         | `./config/cookies.txt`                      | Path to a Netscape-format `cookies.txt` file passed to spotdl as `--cookie-file`. Recommended for Docker deployments. See [below](#yt_cookies_file---cookies-file).      |
 
 ### Spotify user login (Web API)
 
@@ -131,21 +128,9 @@ Spotify **client credentials** cannot read many user playlists (403). Set `SPOTI
 
 ### YouTube cookies
 
-YouTube may block or throttle downloads without authentication cookies. Spooty supports two ways to provide them — use the one that fits your setup.
+YouTube may block or throttle downloads without authentication cookies. Provide them via a `cookies.txt` file, which Spooty passes to spotdl as `--cookie-file`.
 
-#### `YT_COOKIES` — browser-based cookies (non-Docker)
-
-Set `YT_COOKIES` to the name of your browser and yt-dlp will automatically read cookies directly from it.
-Supported values: `chrome`, `firefox`, `edge`, `safari`, `brave`, `opera`, `chromium`.
-
-```
-YT_COOKIES=chrome
-```
-
-> [!NOTE]
-> This only works when Spooty runs on the same machine as your browser (i.e. not in Docker, where no browser is present).
-
-#### `YT_COOKIES_FILE` — cookies file (recommended for Docker)
+#### `YT_COOKIES_FILE` — cookies file
 
 Export your YouTube cookies as a Netscape `cookies.txt` file and provide its path. This is the recommended approach for Docker deployments.
 
@@ -157,9 +142,6 @@ Export your YouTube cookies as a Netscape `cookies.txt` file and provide its pat
 **Docker usage:**
 
 Bind mount the `cookies.txt` file into the container and set `YT_COOKIES_FILE` to its path inside the container. See the [Environment variables](#environment-variables) section for details.
-
-> [!NOTE]
-> `YT_COOKIES` takes priority over `YT_COOKIES_FILE` if both are set.
 
 # ⚖️ License
 [MIT](https://choosealicense.com/licenses/mit/)
